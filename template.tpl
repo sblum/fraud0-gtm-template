@@ -798,6 +798,113 @@ scenarios:
 
     assertApi('gtmOnFailure').wasCalled();
     assertApi('gtmOnSuccess').wasNotCalled();
+- name: Page View fires the pixel only once per page
+  code: |-
+    runCode(mockData);
+    runCode(mockData);
+
+    assertThat(sentPixelCount).isEqualTo(1);
+    assertThat(injectCount).isEqualTo(2);
+    assertApi('gtmOnSuccess').wasCalled();
+- name: Conversion with default de-duplication pushes only once
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'lead';
+    mockData.conversionId = 'contact_form';
+    runCode(mockData);
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(1);
+    assertApi('gtmOnSuccess').wasCalled();
+- name: Conversion de-duplication keys on type and ID
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'purchase';
+    mockData.conversionId = 'order-A';
+    runCode(mockData);
+    mockData.conversionId = 'order-B';
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(2);
+    assertThat(queuedEvents[0][1]).isEqualTo('order-A');
+    assertThat(queuedEvents[1][1]).isEqualTo('order-B');
+- name: Disabled de-duplication sends identical conversions again
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'purchase';
+    mockData.conversionId = 'order-1';
+    mockData.dedupeConversion = false;
+    runCode(mockData);
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(2);
+- name: Tealium present logs exactly one warning and tag works normally
+  code: |-
+    containerVersion = {debugMode: true, previewMode: true};
+    windowGlobals.utag = {link: () => {}};
+    runCode(mockData);
+    runCode(mockData);
+
+    assertApi('sendPixel').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    const tealiumWarnings = consoleMessages.filter(m => m.indexOf('Tealium') !== -1);
+    assertThat(tealiumWarnings.length).isEqualTo(1);
+- name: Non-array dataLayer logs a warning and tag continues
+  code: |-
+    containerVersion = {debugMode: true, previewMode: true};
+    windowGlobals.dataLayer = {someKey: 'someValue'};
+    runCode(mockData);
+
+    assertApi('sendPixel').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    const warnings = consoleMessages.filter(m => m.indexOf('window.dataLayer exists but is not an array') !== -1);
+    assertThat(warnings.length).isEqualTo(1);
+- name: F0Loaded already set logs a warning but pixel and injection still run
+  code: |-
+    containerVersion = {debugMode: true, previewMode: true};
+    windowGlobals.F0Loaded = true;
+    runCode(mockData);
+
+    assertThat(sentPixelCount).isEqualTo(1);
+    assertThat(injectedScriptUrl).isEqualTo('https://api.fraud0.com/api/v2/fz.js?cid=12345678-90ab-cdef-1234-567890abcdef');
+    assertApi('gtmOnSuccess').wasCalled();
+    const warnings = consoleMessages.filter(m => m.indexOf('F0Loaded') !== -1);
+    assertThat(warnings.length).isEqualTo(1);
+- name: No console output outside debug mode
+  code: |-
+    windowGlobals.utag = {link: () => {}};
+    windowGlobals.dataLayer = {someKey: 'someValue'};
+    windowGlobals.fraud0 = {someKey: 'someValue'};
+    windowGlobals.F0Loaded = true;
+    runCode(mockData);
+    runCode(mockData);
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'basic';
+    runCode(mockData);
+    runCode(mockData);
+
+    assertThat(consoleMessages.length).isEqualTo(0);
+    assertApi('logToConsole').wasNotCalled();
+- name: Conversion type defaults to purchase when the field is empty
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = undefined;
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(1);
+    assertThat(queuedEvents[0][0]).isEqualTo('purchase');
+    assertApi('gtmOnFailure').wasNotCalled();
+- name: Implausible Customer ID logs a warning but the tag fires normally
+  code: |-
+    containerVersion = {debugMode: true, previewMode: true};
+    mockData.customerId = 'not-a-valid-uuid';
+    runCode(mockData);
+
+    assertApi('sendPixel').wasCalled();
+    assertApi('gtmOnSuccess').wasCalled();
+    assertApi('gtmOnFailure').wasNotCalled();
+    const warnings = consoleMessages.filter(m => m.indexOf('Customer ID') !== -1);
+    assertThat(warnings.length).isEqualTo(1);
 setup: |-
   const mockData = {
     customerId: '12345678-90ab-cdef-1234-567890abcdef',
@@ -810,15 +917,42 @@ setup: |-
   });
 
   let injectedScriptUrl;
+  let injectCount = 0;
   mock('injectScript', (url, onSuccess, onFailure) => {
     injectedScriptUrl = url;
+    injectCount++;
     onSuccess();
   });
 
   let sentPixelUrl;
+  let sentPixelCount = 0;
   mock('sendPixel', (url, onSuccess, onFailure) => {
     sentPixelUrl = url;
+    sentPixelCount++;
   });
+
+  // Stateful template storage: keeps values across runCode calls within one
+  // scenario, like the real per-page templateStorage.
+  let storage = {};
+  mock('templateStorage', {
+    getItem: key => storage[key],
+    setItem: (key, value) => { storage[key] = value; },
+    removeItem: key => { storage[key] = undefined; },
+    clear: () => { storage = {}; }
+  });
+
+  // Window globals readable via copyFromWindow (utag, dataLayer, fraud0,
+  // F0Loaded). Scenarios add entries as needed.
+  let windowGlobals = {};
+  mock('copyFromWindow', name => windowGlobals[name]);
+
+  // Debug logging is OFF by default so scenarios behave like production.
+  // Diagnostics scenarios switch debugMode/previewMode on.
+  let containerVersion = {debugMode: false, previewMode: false};
+  mock('getContainerVersion', () => containerVersion);
+
+  let consoleMessages = [];
+  mock('logToConsole', message => consoleMessages.push(message));
 
 
 ___NOTES___
