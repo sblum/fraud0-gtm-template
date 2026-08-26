@@ -2,11 +2,9 @@ homepage: "https://www.fraud0.com"
 documentation: "https://help.fraud0.com/1-onsite/a-implement-onsite/gettingstarted01/"
 versions:
   # IMPORTANT: Before submitting to the Community Template Gallery, replace the
-  # sha placeholders below with the full 40-character SHA of the Git commit
-  # that contains the final template.tpl (GitHub: commit view -> copy icon).
-  # Every published version must be listed here in reverse chronological order.
-  # See SUBMISSION_CHECKLIST.md.
+  # sha placeholder below with the full 40-character SHA of the Git commit on
+  # the main branch that contains the final template.tpl (GitHub: commit view
+  # -> copy icon). Later published versions are added ON TOP of this list
+  # (reverse chronological order). See SUBMISSION_CHECKLIST.md.
   - sha: TODO
-    changeNotes: Preview-mode diagnostics, per-page pixel and conversion de-duplication, purchase as default conversion type, documentation of the fraud0 data layer events.
-  - sha: 0000000000000000000000000000000000000000
     changeNotes: Initial release.
