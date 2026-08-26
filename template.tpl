@@ -195,8 +195,9 @@ ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
  *
  * Conversion Event: pushes a conversion into the window.fraud0 queue so the
  * detection model can identify false positives, and ensures the detection
- * script is present (injectScript deduplicates by URL). Identical conversions
- * (same type and ID) are de-duplicated per page by default.
+ * script is present (one script element per page via the injectScript cache
+ * token). Identical conversions (same type and ID) are de-duplicated per
+ * page by default.
  *
  * Diagnostics: in GTM preview/debug mode the tag checks the page for known
  * integration pitfalls (Tealium container, non-array dataLayer or fraud0
@@ -407,9 +408,11 @@ if (data.tagType === 'conversion') {
   }
 }
 
-// Load the fraud0 detection script. injectScript deduplicates by URL, so the
-// script is only loaded once even if several fraud0 tags fire on one page.
-injectScript(scriptUrl, data.gtmOnSuccess, data.gtmOnFailure);
+// Load the fraud0 detection script. The cacheToken (4th argument) is what
+// makes injectScript reuse one script element per page - without it, every
+// firing injects fz.js again (fz.js would still initialize only once via
+// window.F0Loaded, but each extra element triggers another download).
+injectScript(scriptUrl, data.gtmOnSuccess, data.gtmOnFailure, scriptUrl);
 
 
 ___WEB_PERMISSIONS___
@@ -805,6 +808,7 @@ scenarios:
 
     assertThat(sentPixelCount).isEqualTo(1);
     assertThat(injectCount).isEqualTo(2);
+    assertThat(injectedCacheToken).isEqualTo('https://api.fraud0.com/api/v2/fz.js?cid=12345678-90ab-cdef-1234-567890abcdef');
     assertApi('gtmOnSuccess').wasCalled();
 - name: Conversion with default de-duplication pushes only once
   code: |-
@@ -917,9 +921,11 @@ setup: |-
   });
 
   let injectedScriptUrl;
+  let injectedCacheToken;
   let injectCount = 0;
-  mock('injectScript', (url, onSuccess, onFailure) => {
+  mock('injectScript', (url, onSuccess, onFailure, cacheToken) => {
     injectedScriptUrl = url;
+    injectedCacheToken = cacheToken;
     injectCount++;
     onSuccess();
   });

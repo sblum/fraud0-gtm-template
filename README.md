@@ -254,7 +254,7 @@ Work through this list once per site — it takes about 10 minutes in the browse
 
 1. The Page View tag fires on **all** pages, tag firing priority **1000**.
 2. Network: `fz.js?cid=…` and `pixel?cid=…&cb=…` both return status **200/204**.
-3. Network: **two POSTs** to `/api/v2/event` on a fresh page load (the minimal first-hit event and the full data set).
+3. Network: **two POSTs** to `/api/v2/event` on the first page view of a fresh session (the minimal first-hit event and the full-data escalation). Later page views may legitimately show only one POST.
 4. Exactly **one** `fraud0` event per page view in the data layer (one more per SPA route change is expected).
 5. Cookies `f0_uid` and `f0_sid` are set (host-only, 365 days / 1 day).
 6. **No second** fraud0 script in the DOM (no body embed or legacy `bt.fraud0.com` snippet in parallel).
@@ -588,7 +588,7 @@ Diese Liste einmal pro Site durchgehen — etwa 10 Minuten mit Browser-DevTools 
 
 1. Der Page-View-Tag feuert auf **allen** Seiten, Tag-Priorität **1000**.
 2. Netzwerk: `fz.js?cid=…` und `pixel?cid=…&cb=…` liefern beide Status **200/204**.
-3. Netzwerk: **zwei POSTs** an `/api/v2/event` bei frischem Seitenaufruf (Minimal-Event und Voll-Datensatz).
+3. Netzwerk: **zwei POSTs** an `/api/v2/event` beim ersten Seitenaufruf einer frischen Session (Minimal-Event und Voll-Eskalation). Spätere Seitenaufrufe dürfen legitim nur einen POST zeigen.
 4. Genau **ein** `fraud0`-Event pro Seitenaufruf im Data Layer (eines mehr pro SPA-Routenwechsel ist erwartet).
 5. Cookies `f0_uid` und `f0_sid` sind gesetzt (host-only, 365 Tage / 1 Tag).
 6. **Kein zweites** fraud0-Script im DOM (kein Body-Embed oder Legacy-`bt.fraud0.com`-Snippet parallel).
