@@ -68,7 +68,7 @@ Key facts:
   var forward = function (entry) {
     if (entry && (entry.event === 'fraud0' ||
                   entry.event === 'f0_event_invalid_traffic')) {
-      window.myDataLayer.push(entry); // <- your container's data layer name
+      (window.myDataLayer = window.myDataLayer || []).push(entry); // <- your container's data layer name
     }
   };
   var originalPush = window.dataLayer.push;
@@ -194,9 +194,9 @@ The template deliberately contains **no consent-mode APIs** (`isConsentGranted`,
 | fraud0 Customer ID (cid) | always | yes | Your fraud0 Customer ID (UUID) from the dashboard. Accepts a GTM variable. |
 | Tag type | always | yes | **Page View (fraud0 Main Tag)** — default — or **Conversion Event**. |
 | Conversion type | Tag type = Conversion Event | yes | `Purchase` (default), `Lead`, `Signup`, `Custom conversion type` or `Basic conversion (sent as 'generic')`. |
-| Custom conversion type | Conversion type = Custom conversion type | yes | Identifier such as `trial_started`, `whitepaper_download`, `quote_requested`. Letters, digits, `_`, `-`. The values `1` and `generic` are reserved. |
+| Custom conversion type | Conversion type = Custom conversion type | yes | Identifier such as `trial_started`, `whitepaper_download`, `quote_requested`. Letters, digits, `_`, `-`. The values `1` and `generic` are reserved. Values from a GTM variable are checked when the tag fires; an invalid value fails the tag. |
 | Conversion ID (optional) | Tag type = Conversion Event | no | Identifier for this conversion instance, ideally unique (order ID, lead or registration reference). Technical references only — no personal data such as e-mail addresses, names or user IDs. Ignored for Basic. |
-| Send this conversion only once per page | Tag type = Conversion Event | — (default: on) | De-duplicates identical conversions (same type **and** ID) within one page load, e.g. when a form-submission trigger and a custom confirmation event both fire for one AJAX form. Different IDs always go through. On single-page applications one page load spans all virtual pages — use a unique Conversion ID there. |
+| Send this conversion only once per page | Tag type = Conversion Event | — (default: on) | De-duplicates identical conversions (same type **and** ID) within one page load, e.g. when a form-submission trigger and a custom confirmation event both fire for one AJAX form. Different IDs always go through — except for Basic, which ignores the ID and is therefore sent at most once per page load. On single-page applications one page load spans all virtual pages — use a unique Conversion ID there (and a descriptive type instead of Basic). |
 
 ## Conversion types
 
@@ -251,6 +251,8 @@ In **GTM preview/debug mode** the template checks the page for the known integra
 | D6 | Conversion fires before the Main Tag has run | Note (no warning): the conversion is held in the `window.fraud0` queue and sent once fz.js loads. |
 | D7 | Conversion type is `basic` | Sent as `generic` via an older code path (possible double counting) — prefer a descriptive type. |
 | D8 | The resolved Customer ID is not a plausible UUID (length, hyphens, hex digits, version/variant) | With an invalid `cid`, fz.js cannot attribute events to your account — check the GTM variable. The tag still fires (log only). |
+| D9 | The resolved Customer ID is empty | Nothing is sent and the tag fails — check the field or the GTM variable. |
+| D10 | A custom conversion type from a GTM variable is empty, contains disallowed characters or is reserved (`1`, `generic`) | Nothing is queued and the tag fails — check the GTM variable. |
 
 ## Preflight checklist
 
@@ -331,7 +333,7 @@ Start with the [Preflight checklist](#preflight-checklist) — it covers the fre
 
 ## Development & tests
 
-The template ships with unit tests (26 scenarios) covering the pixel, script injection, all conversion variants, both de-duplication guards, the preview-mode diagnostics and failure paths. To run them: import `template.tpl` into the GTM Template Editor (**Templates → New → Import**), open the **Tests** tab and click **▶ Run Tests**.
+The template ships with unit tests (31 scenarios) covering the pixel, script injection, all conversion variants, both de-duplication guards, the preview-mode diagnostics and failure paths. To run them: import `template.tpl` into the GTM Template Editor (**Templates → New → Import**), open the **Tests** tab and click **▶ Run Tests**.
 
 Contributions: please open an issue or pull request in this repository. For a new gallery version, commit the change, then add the commit SHA with change notes to the top of `versions` in `metadata.yaml`.
 
@@ -414,7 +416,7 @@ Die wichtigsten Fakten:
   var forward = function (entry) {
     if (entry && (entry.event === 'fraud0' ||
                   entry.event === 'f0_event_invalid_traffic')) {
-      window.myDataLayer.push(entry); // <- Data-Layer-Name eures Containers
+      (window.myDataLayer = window.myDataLayer || []).push(entry); // <- Data-Layer-Name eures Containers
     }
   };
   var originalPush = window.dataLayer.push;
@@ -534,9 +536,9 @@ Die Vorlage enthält bewusst **keine Consent-Mode-APIs** (`isConsentGranted`, `a
 | fraud0 Customer ID (cid) | immer | ja | fraud0 Customer ID (UUID) aus dem Dashboard. GTM-Variable möglich. |
 | Tag type | immer | ja | **Page View (fraud0 Main Tag)** — Standard — oder **Conversion Event**. |
 | Conversion type | Tag type = Conversion Event | ja | `Purchase` (Standard), `Lead`, `Signup`, `Custom conversion type` oder `Basic conversion (sent as 'generic')`. |
-| Custom conversion type | Conversion type = Custom conversion type | ja | Bezeichner wie `trial_started`, `whitepaper_download`, `quote_requested`. Buchstaben, Ziffern, `_`, `-`. Die Werte `1` und `generic` sind reserviert. |
+| Custom conversion type | Conversion type = Custom conversion type | ja | Bezeichner wie `trial_started`, `whitepaper_download`, `quote_requested`. Buchstaben, Ziffern, `_`, `-`. Die Werte `1` und `generic` sind reserviert. Werte aus einer GTM-Variable werden beim Feuern geprüft; ein ungültiger Wert lässt den Tag fehlschlagen. |
 | Conversion ID (optional) | Tag type = Conversion Event | nein | Kennung der Conversion-Instanz, idealerweise eindeutig (Bestell-ID, Lead- oder Registrierungs-Referenz). Nur technische Referenzen — keine personenbezogenen Daten wie E-Mail-Adressen, Namen oder User-IDs. Bei Basic ohne Wirkung. |
-| Send this conversion only once per page | Tag type = Conversion Event | — (Standard: an) | Dedupliziert identische Conversions (gleicher Typ **und** gleiche ID) innerhalb eines Seitenladevorgangs, z. B. wenn bei einem AJAX-Formular ein Formular-Submit-Trigger und ein eigenes Bestätigungs-Event beide feuern. Unterschiedliche IDs gehen immer durch. In Single-Page-Applications umfasst ein Seitenladevorgang alle virtuellen Seiten — dort eine eindeutige Conversion ID verwenden. |
+| Send this conversion only once per page | Tag type = Conversion Event | — (Standard: an) | Dedupliziert identische Conversions (gleicher Typ **und** gleiche ID) innerhalb eines Seitenladevorgangs, z. B. wenn bei einem AJAX-Formular ein Formular-Submit-Trigger und ein eigenes Bestätigungs-Event beide feuern. Unterschiedliche IDs gehen immer durch — außer bei Basic: Basic ignoriert die ID und wird daher höchstens einmal pro Seitenladevorgang gesendet. In Single-Page-Applications umfasst ein Seitenladevorgang alle virtuellen Seiten — dort eine eindeutige Conversion ID verwenden (und statt Basic einen sprechenden Typ). |
 
 ## Conversion-Typen
 
@@ -591,6 +593,8 @@ Im **GTM-Vorschau-/Debug-Modus** prüft die Vorlage die Seite auf die bekannten 
 | D6 | Conversion feuert, bevor der Main Tag lief | Hinweis (keine Warnung): die Conversion wird in der `window.fraud0`-Queue gehalten und gesendet, sobald fz.js lädt. |
 | D7 | Conversion-Typ ist `basic` | Wird als `generic` über einen älteren Codepfad gesendet (mögliche Doppelzählung) — sprechenden Typ bevorzugen. |
 | D8 | Die aufgelöste Customer ID ist keine plausible UUID (Länge, Bindestriche, Hex-Zeichen, Version/Variante) | Mit ungültiger `cid` kann fz.js Events nicht eurem Account zuordnen — GTM-Variable prüfen. Der Tag feuert trotzdem (nur Log). |
+| D9 | Die aufgelöste Customer ID ist leer | Es wird nichts gesendet, der Tag schlägt fehl — Feld oder GTM-Variable prüfen. |
+| D10 | Ein Custom Conversion Type aus einer GTM-Variable ist leer, enthält unzulässige Zeichen oder ist reserviert (`1`, `generic`) | Es wird nichts eingereiht, der Tag schlägt fehl — GTM-Variable prüfen. |
 
 ## Preflight-Checkliste
 
@@ -671,7 +675,7 @@ Zuerst die [Preflight-Checkliste](#preflight-checkliste) durchgehen — sie deck
 
 ## Entwicklung & Tests
 
-Die Vorlage enthält Unit-Tests (26 Szenarien) für Pixel, Script-Injection, alle Conversion-Varianten, beide Deduplizierungs-Guards, die Vorschaumodus-Diagnosen und die Fehlerpfade. Ausführen: `template.tpl` im GTM-Vorlagen-Editor importieren (**Vorlagen → Neu → Importieren**), Tab **Tests** öffnen, **▶ Tests ausführen** klicken.
+Die Vorlage enthält Unit-Tests (31 Szenarien) für Pixel, Script-Injection, alle Conversion-Varianten, beide Deduplizierungs-Guards, die Vorschaumodus-Diagnosen und die Fehlerpfade. Ausführen: `template.tpl` im GTM-Vorlagen-Editor importieren (**Vorlagen → Neu → Importieren**), Tab **Tests** öffnen, **▶ Tests ausführen** klicken.
 
 Beiträge: bitte als Issue oder Pull Request in diesem Repository. Für eine neue Gallery-Version: Änderung committen, dann den Commit-SHA mit Change Notes oben in `versions` der `metadata.yaml` eintragen.
 

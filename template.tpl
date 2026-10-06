@@ -120,7 +120,7 @@ ___TEMPLATE_PARAMETERS___
         "name": "customConversionType",
         "displayName": "Custom conversion type",
         "simpleValueType": true,
-        "help": "A short identifier for this conversion type, e.g. trial_started, subscription_renewed, whitepaper_download, quote_requested or appointment_booked. Allowed characters: letters, digits, underscore, hyphen. The values '1' and 'generic' are reserved by fraud0. A Google Tag Manager variable is also accepted.",
+        "help": "A short identifier for this conversion type, e.g. trial_started, subscription_renewed, whitepaper_download, quote_requested or appointment_booked. Allowed characters: letters, digits, underscore, hyphen. The values '1' and 'generic' are reserved by fraud0. A Google Tag Manager variable is also accepted; its value is checked against the same rules when the tag fires, and an invalid value fails the tag.",
         "enablingConditions": [
           {
             "paramName": "conversionType",
@@ -170,7 +170,7 @@ ___TEMPLATE_PARAMETERS___
     "checkboxText": "Send this conversion only once per page",
     "simpleValueType": true,
     "defaultValue": true,
-    "help": "Prevents the same conversion (same Conversion type and Conversion ID) from being pushed twice within one page load, e.g. when a form-submission trigger and a custom confirmation event both fire for one AJAX form. A different ID is always sent. On single-page apps one page load spans all virtual pages: without a unique Conversion ID, repeated conversions of the same type are sent only once. Disable only if the same conversion should intentionally be reported multiple times.",
+    "help": "Prevents the same conversion (same Conversion type and Conversion ID) from being pushed twice within one page load, e.g. when a form-submission trigger and a custom confirmation event both fire for one AJAX form. A different ID is always sent, except for Basic conversions: they ignore the ID and are sent at most once per page load. On single-page apps one page load spans all virtual pages: without a unique Conversion ID (or with Basic), repeated conversions of the same type are sent only once. Disable only if the same conversion should intentionally be reported multiple times.",
     "enablingConditions": [
       {
         "paramName": "tagType",
@@ -201,7 +201,8 @@ ___SANDBOXED_JS_FOR_WEB_TEMPLATE___
  * Diagnostics: in GTM preview/debug mode the tag checks the page for known
  * integration pitfalls (Tealium container, non-array dataLayer or fraud0
  * queue, duplicate installation, duplicate firing, Basic conversion type,
- * implausible Customer ID) and logs [fraud0] messages to the console. In
+ * implausible or empty Customer ID, invalid custom conversion type) and logs
+ * [fraud0] messages to the console. In
  * production nothing is logged and no additional window reads happen.
  */
 
@@ -310,11 +311,34 @@ const isPlausibleCid = (value) => {
       '89abAB'.indexOf(value.charAt(19)) !== -1;
 };
 
+// D10 — runtime check for the custom conversion type. The field validators
+// only cover literal values; a GTM variable is resolved when the tag fires,
+// so the same rules are enforced here: letters, digits, underscore and
+// hyphen only, '1' and 'generic' reserved.
+const TYPE_CHARS =
+    'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-';
+
+// Values that count as "not set" when a field resolves from a GTM variable
+// (value !== value is the sandbox-safe NaN check).
+const isUnset = (value) => value === undefined || value === null ||
+    value === false || value !== value;
+const isValidCustomType = (value) => {
+  if (value === '' || value === '1' || value === 'generic') {
+    return false;
+  }
+  for (let i = 0; i < value.length; i++) {
+    if (TYPE_CHARS.indexOf(value.charAt(i)) === -1) {
+      return false;
+    }
+  }
+  return true;
+};
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
-// The Customer ID is required for every tag type.
+// The Customer ID is required for every tag type (D9 in debug mode).
 if (!data.customerId) {
   diag('The fraud0 Customer ID is empty - nothing is sent. Check the ' +
       'field or the GTM variable that provides it.');
@@ -343,13 +367,27 @@ if (data.tagType === 'conversion') {
   // Resolve the conversion type. An empty value falls back to the UI default
   // "purchase" so the tag never pushes an undefined type.
   const rawType = data.conversionType || 'purchase';
-  const conversionType = rawType === 'custom' ?
-      data.customConversionType : rawType;
   const isBasic = rawType === 'basic';
+  let conversionType = rawType;
 
-  if (!isBasic && !conversionType) {
-    return data.gtmOnFailure();
+  if (rawType === 'custom') {
+    const customType = data.customConversionType;
+    conversionType = isUnset(customType) ? '' : makeString(customType);
+    if (!isValidCustomType(conversionType)) {
+      diag('The custom conversion type "' + conversionType + '" is empty, ' +
+          'contains characters other than letters, digits, underscore or ' +
+          'hyphen, or is one of the reserved values "1" and "generic". ' +
+          'Nothing was queued. Check the GTM variable. See README section ' +
+          '"Field reference".');
+      return data.gtmOnFailure();
+    }
   }
+
+  // The Conversion ID is optional. Only undefined, null, false, NaN or an
+  // empty string count as missing (a numeric 0 is a valid ID); Basic
+  // conversions ignore it.
+  const rawId = data.conversionId;
+  const conversionId = (isBasic || isUnset(rawId)) ? '' : makeString(rawId);
 
   if (isBasic) {
     // D7 — [1] is sent as "generic" and runs through an older fz.js code
@@ -370,29 +408,32 @@ if (data.tagType === 'conversion') {
         'the detection script loads.');
   }
 
-  // G2 — de-duplicate identical conversions (same type AND ID) per page.
+  // G2 — de-duplicate identical conversions (same type AND ID) per page
+  // load; Basic conversions are keyed on [1] alone because they ignore the
+  // ID. Only the queue push is suppressed: the script load below still runs,
+  // so a repeated firing reports the actual load result.
   // data.dedupeConversion is only false when the user unchecks the box.
   const dedupeKey = CONVERSION_KEY_PREFIX +
-      (isBasic ? '1' : makeString(conversionType)) + '|' +
-      (data.conversionId ? makeString(data.conversionId) : '');
+      (isBasic ? '1' : conversionType) + '|' + conversionId;
   if (data.dedupeConversion !== false &&
       templateStorage.getItem(dedupeKey) === true) {
     diag('Duplicate conversion suppressed: the same conversion (type and ' +
-        'ID) was already sent on this page. Uncheck "Send this conversion ' +
-        'only once per page" on the tag if this is intentional.');
-    return data.gtmOnSuccess();
-  }
-
-  // Queue the conversion for the detection script: window.fraud0.push([...])
-  const fraud0Push = createQueue('fraud0');
-  if (isBasic) {
-    fraud0Push([1]);
-  } else if (data.conversionId) {
-    fraud0Push([makeString(conversionType), makeString(data.conversionId)]);
+        'ID; Basic conversions ignore the ID) was already queued on this ' +
+        'page. Uncheck "Send this conversion only once per page" on the ' +
+        'tag if this is intentional.');
   } else {
-    fraud0Push([makeString(conversionType)]);
+    // Queue the conversion for the detection script:
+    // window.fraud0.push([...])
+    const fraud0Push = createQueue('fraud0');
+    if (isBasic) {
+      fraud0Push([1]);
+    } else if (conversionId !== '') {
+      fraud0Push([conversionType, conversionId]);
+    } else {
+      fraud0Push([conversionType]);
+    }
+    templateStorage.setItem(dedupeKey, true);
   }
-  templateStorage.setItem(dedupeKey, true);
 } else {
   // Page View (Main Tag).
   if (templateStorage.getItem(PIXEL_SENT_KEY) === true) {
@@ -985,6 +1026,70 @@ scenarios:
 
     const warnings = consoleMessages.filter(m => m.indexOf('Customer ID') !== -1);
     assertThat(warnings.length).isEqualTo(2);
+- name: Repeated identical conversion still reports the script load result
+  code: |-
+    mock('injectScript', (url, onSuccess, onFailure) => {
+      injectCount++;
+      onFailure();
+    });
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'lead';
+    mockData.conversionId = 'L-0001';
+    runCode(mockData);
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(1);
+    assertThat(injectCount).isEqualTo(2);
+    assertApi('gtmOnFailure').wasCalled();
+    assertApi('gtmOnSuccess').wasNotCalled();
+- name: Numeric zero Conversion ID is queued and kept apart from no ID
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'purchase';
+    mockData.conversionId = 0;
+    runCode(mockData);
+    mockData.conversionId = undefined;
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(2);
+    assertThat(queuedEvents[0].length).isEqualTo(2);
+    assertThat(queuedEvents[0][1]).isEqualTo('0');
+    assertThat(queuedEvents[1].length).isEqualTo(1);
+- name: Basic conversions with different IDs are queued only once
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'basic';
+    mockData.conversionId = 'a';
+    runCode(mockData);
+    mockData.conversionId = 'b';
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(1);
+    assertThat(queuedEvents[0][0]).isEqualTo(1);
+- name: Invalid custom conversion types from a variable fail the tag
+  code: |-
+    containerVersion = {debugMode: true, previewMode: true};
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'custom';
+    ['trial started', 'a|b', '1', 'generic', '', false].forEach(value => {
+      mockData.customConversionType = value;
+      runCode(mockData);
+    });
+
+    assertThat(queuedEvents.length).isEqualTo(0);
+    assertApi('injectScript').wasNotCalled();
+    assertApi('gtmOnSuccess').wasNotCalled();
+    const warnings = consoleMessages.filter(m => m.indexOf('custom conversion type') !== -1);
+    assertThat(warnings.length).isEqualTo(6);
+- name: Numeric custom conversion type from a variable is converted to a string
+  code: |-
+    mockData.tagType = 'conversion';
+    mockData.conversionType = 'custom';
+    mockData.customConversionType = 42;
+    runCode(mockData);
+
+    assertThat(queuedEvents.length).isEqualTo(1);
+    assertThat(queuedEvents[0][0]).isEqualTo('42');
 setup: |-
   const mockData = {
     customerId: '01234567-89ab-4cde-8f01-23456789abcd',
