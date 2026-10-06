@@ -1,0 +1,6 @@
+homepage: "https://www.fraud0.com"
+documentation: "https://help.fraud0.com/1-onsite/a-implement-onsite/gettingstarted01/"
+versions:
+  # Latest version
+  - sha: TODO
+    changeNotes: Initial release.
